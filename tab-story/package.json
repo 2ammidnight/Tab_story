@@ -7,11 +7,16 @@
     "dev": "vite",
     "build": "npm run clean && tsc -b && vite build",
     "lint": "eslint .",
+    "test:qa": "node --experimental-strip-types tests/qa-automated-tests.ts",
+    "test:unit": "playwright test tests/reminders.spec.ts --workers=1",
+    "test:integration": "playwright test tests/extension.spec.ts tests/localization-calendar.spec.ts --workers=1",
+    "typecheck": "tsc -b",
     "preview": "vite preview",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
+    "@mozilla/readability": "^0.6.0",
     "@radix-ui/react-popover": "^1.1.15",
     "clsx": "^2.1.1",
     "date-fns": "^4.3.0",

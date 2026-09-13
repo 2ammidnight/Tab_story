@@ -7,13 +7,25 @@
     "tabs",
     "favicon",
     "identity",
-    "storage"
+    "storage",
+    "alarms",
+    "notifications",
+    "activeTab",
+    "scripting"
   ],
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
+  "host_permissions": [
+    "https://www.googleapis.com/*",
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
   "action": {
     "default_title": "Open Tab Story"
   },
@@ -21,7 +33,8 @@
     "default_path": "sidepanel.html"
   },
   "background": {
-    "service_worker": "src/background.js"
+    "service_worker": "src/background.ts",
+    "type": "module"
   },
   "web_accessible_resources": [
     {

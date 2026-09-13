@@ -1,10 +1,12 @@
 export async function getAuthToken(): Promise<string> {
   return new Promise((resolve, reject) => {
-    chrome.identity.getAuthToken({ interactive: true }, (token) => {
+    chrome.identity.getAuthToken({ interactive: true }, (result) => {
       if (chrome.runtime.lastError) {
         reject(chrome.runtime.lastError);
       } else {
-        resolve(token as string);
+        const token = typeof result === 'string' ? result : result?.token;
+        if (token) resolve(token);
+        else reject(new Error('No auth token received'));
       }
     });
   });
@@ -44,12 +46,13 @@ export async function backupToGoogleDrive(token: string, data: object): Promise<
     'https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name=' + "'" + fileName + "'",
     { headers: { 'Authorization': 'Bearer ' + token } }
   );
+  if (!listRes.ok) throw new Error('Failed to list backup files');
   const listData = await listRes.json();
   const existingFile = listData.files?.[0];
 
   if (existingFile) {
     // Update existing file
-    await fetch(
+    const response = await fetch(
       'https://www.googleapis.com/upload/drive/v3/files/' + existingFile.id + '?uploadType=media',
       {
         method: 'PATCH',
@@ -60,13 +63,14 @@ export async function backupToGoogleDrive(token: string, data: object): Promise<
         body: fileContent,
       }
     );
+    if (!response.ok) throw new Error('Failed to update backup');
   } else {
     // Create new file
     const metadata = { name: fileName, parents: ['appDataFolder'] };
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
     form.append('file', new Blob([fileContent], { type: 'application/json' }));
-    await fetch(
+    const response = await fetch(
       'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart',
       {
         method: 'POST',
@@ -74,5 +78,6 @@ export async function backupToGoogleDrive(token: string, data: object): Promise<
         body: form,
       }
     );
+    if (!response.ok) throw new Error('Failed to create backup');
   }
 }

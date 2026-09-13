@@ -12,6 +12,16 @@ export interface SavedTab {
   notes: string;
   pinned: boolean;
   scheduledAt?: number;
+  /** The schedule generation already delivered (or included in a missed summary). */
+  notifiedScheduledAt?: number;
+  completedAt?: number;
+  completedScheduledAt?: number;
+  deletedAt?: number;
+}
+
+export interface ReminderSummary {
+  id: 'missed';
+  entries: { tabId: number; scheduledAt: number }[];
 }
 
 export interface Folder {
@@ -58,6 +68,7 @@ class TabStoryDB extends Dexie {
   stickyNotes!: Table<StickyNote>;
   studyFolders!: Table<StudyFolder>;
   studyTopics!: Table<StudyTopic>;
+  reminderState!: Table<ReminderSummary, string>;
 
   constructor() {
     super('TabStoryDB');
@@ -87,6 +98,21 @@ class TabStoryDB extends Dexie {
       folders: '++id, name, domain',
       studyFolders: '++id, createdAt',
       studyTopics: '++id, studyFolderId',
+    });
+    this.version(7).stores({
+      tabs: '++id, url, domain, folderId, createdAt, scheduledAt, deletedAt',
+      folders: '++id, name, domain',
+      studyFolders: '++id, createdAt',
+      studyTopics: '++id, studyFolderId',
+    });
+    // Optional fields preserve all pre-existing schedules. Only the durable
+    // aggregate notification mapping needs an additional object store.
+    this.version(8).stores({
+      tabs: '++id, url, domain, folderId, createdAt, scheduledAt, deletedAt',
+      folders: '++id, name, domain',
+      studyFolders: '++id, createdAt',
+      studyTopics: '++id, studyFolderId',
+      reminderState: 'id',
     });
   }
 }

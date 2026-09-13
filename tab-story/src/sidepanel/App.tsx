@@ -1,23 +1,33 @@
-import { useState } from "react";
-import { saveCurrentTab } from "./hooks/useSaveTab";
+import { useEffect, useState } from "react";
 import { TabList } from "./components/TabList";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "./db";
 import { CalendarPanel } from "./components/CalendarPanel";
+import { TagsPanel } from "./components/TagsPanel";
+import { HistoryPanel } from "./components/HistoryPanel";
+import { SettingsPanel } from "./components/SettingsPanel";
+import { AboutPanel } from "./components/AboutPanel";
 import { EmptyState } from "./components/EmptyState";
 import { TabMenu } from "./components/TabMenu";
+import { AIDiscussModal } from "./components/AIDiscussModal";
 import type { SavedTab } from "./db";
 import { Navbar } from "./components/Navbar";
+import { useTheme } from "./hooks/useTheme";
+import { useI18n } from "../i18n/useI18n";
+import { deleteAllData, saveAllTabs, saveCurrentTab } from "./utils/tabOperations";
+import { requestReminderReconciliation } from "../reminders/service";
 import {
   TagIcon, BookmarkSquareIcon, CalendarIcon, ClockIcon,
   Cog6ToothIcon, PlusIcon, ChevronLeftIcon,
   InformationCircleIcon, TrashIcon, FolderArrowDownIcon,
+  SunIcon, MoonIcon,
 } from "@heroicons/react/24/outline";
 import {
   TagIcon as TagSolid, BookmarkSquareIcon as BookmarkSquareSolid,
   CalendarIcon as CalendarSolid, ClockIcon as ClockSolid,
   Cog6ToothIcon as CogSolid, PlusIcon as PlusSolid,
   InformationCircleIcon as InfoSolid, TrashIcon as TrashSolid, FolderArrowDownIcon as FolderArrowDownSolid,
+  SunIcon as SunSolid, MoonIcon as MoonSolid,
 } from "@heroicons/react/24/solid";
 
 export type ViewMode = "grid" | "list";
@@ -33,106 +43,147 @@ const mainItems = [
 const ICO = "20px";
 
 export function App() {
-  const [activePanel, setActivePanel]   = useState<string | null>(null);
-  const [hoveredBtn,  setHoveredBtn]    = useState<string | null>(null);
+  const { theme, toggleTheme } = useTheme();
+  const { t } = useI18n();
+  const [activePanel, setActivePanel] = useState<string | null>(() =>
+    window.location.hash === "#calendar" ? "Calendar" : null);
+  const [error, setError] = useState(false);
+  const [hoveredBtn,  setHoveredBtn]  = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [viewMode] = useState<ViewMode>("list");
+  const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
   const [menuTab, setMenuTab] = useState<SavedTab | null>(null);
+  const [aiModal, setAiModal] = useState<{ title: string; tabs: SavedTab[] } | null>(null);
   const isOpen = activePanel !== null;
 
   // Data for empty state check
   const folderCount = useLiveQuery(() => db.folders.count());
   const tabCount    = useLiveQuery(() => db.tabs.count());
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleBatchAdd = () => {
-    // Placeholder – later you'll open a batch add form
-    console.log("Batch add clicked");
+  useEffect(() => {
+    const showCalendar = () => {
+      if (window.location.hash === "#calendar") setActivePanel("Calendar");
+    };
+    window.addEventListener("hashchange", showCalendar);
+    void requestReminderReconciliation().catch((cause) => {
+      console.error("[Tab Story] Reminder recovery failed", cause);
+      setError(true);
+    });
+    return () => window.removeEventListener("hashchange", showCalendar);
+  }, []);
+
+  const runAction = async (action: () => Promise<void>) => {
+    setError(false);
+    try { await action(); }
+    catch (cause) { console.error("[Tab Story] Action failed", cause); setError(true); }
   };
 const handleDeleteAll = async () => {
-  const confirmed = window.confirm("Delete all saved tabs and folders?");
+  const confirmed = window.confirm(t("app.confirmDeleteAll"));
   if (!confirmed) return;
-  await db.tabs.clear();
-  await db.folders.clear();
+  await runAction(deleteAllData);
 };
 
 const handleSaveAllTabs = async () => {
-  const allTabs = await chrome.tabs.query({ currentWindow: true });
-  for (const tab of allTabs) {
-    if (!tab.url || !tab.title) continue;
-    if (tab.url.startsWith("chrome://") || tab.url.startsWith("chrome-extension://") || tab.url.startsWith("about:")) continue;
-
-    const domain = (() => { try { return new URL(tab.url).hostname.replace("www.", ""); } catch { return tab.url; } })();
-    const favicon = tab.favIconUrl?.startsWith("http") ? tab.favIconUrl : `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
-
-    let folder = await db.folders.where("domain").equals(domain).first();
-    if (!folder) {
-      const folderId = await db.folders.add({ name: domain, domain, createdAt: Date.now() });
-      folder = { id: folderId as number, name: domain, domain, createdAt: Date.now() };
-    }
-
-    const existing = await db.tabs.where("url").equals(tab.url).first();
-    if (existing) continue;
-
-    await db.tabs.add({ url: tab.url, title: tab.title, favicon, domain, folderId: folder.id, tags: [], createdAt: Date.now(), notes: "", pinned: false });
-  }
+  await runAction(saveAllTabs);
 };
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden", position: "relative" }}>
+    <div
+      onClickCapture={event => {
+        const wrap = (event.target as HTMLElement).closest<HTMLElement>('.sb-tooltip-wrap');
+        if (wrap) wrap.dataset.dismissed = 'true';
+      }}
+      onPointerOverCapture={event => {
+        const wrap = (event.target as HTMLElement).closest<HTMLElement>('.sb-tooltip-wrap');
+        if (wrap && !(event.relatedTarget instanceof Node && wrap.contains(event.relatedTarget))) delete wrap.dataset.dismissed;
+      }}
+      onFocusCapture={event => {
+        const wrap = (event.target as HTMLElement).closest<HTMLElement>('.sb-tooltip-wrap');
+        if (wrap) delete wrap.dataset.dismissed;
+      }}
+      onKeyDownCapture={event => {
+        if (event.key === 'Escape') event.currentTarget.querySelectorAll<HTMLElement>('.sb-tooltip-wrap').forEach(wrap => { wrap.dataset.dismissed = 'true'; });
+      }}
+      style={{ display: "flex", height: "100vh", overflow: "hidden", position: "relative", background: "var(--bg-color)", color: "var(--text-color)" }}>
 
       {/* Sidebar */}
       <div style={{
         width: "48px", display: "flex", flexDirection: "column",
         alignItems: "center", paddingTop: "10px", paddingBottom: "12px",
-        borderRight: "1px solid rgba(90,90,95,0.3)",
-        flexShrink: 0, zIndex: 30, background: "var(--bg-color)",
+        borderInlineEnd: "1px solid var(--border-color)",
+        flexShrink: 0, zIndex: 30, background: "var(--sidebar-bg, var(--bg-color))",
       }}>
         <div className="sb-tooltip-wrap" style={{ visibility: isOpen ? "visible" : "hidden" }}>
-          <button className="sb-btn" onClick={() => setActivePanel(null)}
+          <button className="sb-btn" aria-label={t("app.close")} onClick={() => setActivePanel(null)}
             onMouseEnter={() => setHoveredBtn("toggle")}
             onMouseLeave={() => setHoveredBtn(null)}>
-            <ChevronLeftIcon style={{ width: ICO, height: ICO }} />
+            <ChevronLeftIcon className="directional-icon" style={{ width: ICO, height: ICO }} />
           </button>
-          <span className="sb-tooltip">Close</span>
+          <span className="sb-tooltip">{t("app.close")}</span>
         </div>
 
         <div style={{ height: "20px" }} />
 
         <div className="sb-tooltip-wrap">
-          <button className="sb-btn" onClick={saveCurrentTab}
+          <button className="sb-btn" aria-label={t("app.saveTab")} onClick={() => runAction(saveCurrentTab)}
             onMouseEnter={() => setHoveredBtn("plus")}
             onMouseLeave={() => setHoveredBtn(null)}>
             {hoveredBtn === "plus"
               ? <PlusSolid style={{ width: ICO, height: ICO }} />
               : <PlusIcon  style={{ width: ICO, height: ICO }} />}
           </button>
-          <span className="sb-tooltip">Save Tab</span>
+          <span className="sb-tooltip">{t("app.saveTab")}</span>
         </div>
 
         <div style={{ height: "16px" }} />
 
         {mainItems.map(({ outline: Outline, solid: Solid, label }) => {
-          const isActive  = activePanel === label;
+          const isActive  = label === "Tab Manager" ? activePanel === null : activePanel === label;
           const isHovered = hoveredBtn  === label;
           const Icon = isActive || isHovered ? Solid : Outline;
           return (
             <div key={label} className="sb-tooltip-wrap" style={{ marginBottom: "4px" }}>
               <button
                 className={`sb-btn${isActive ? " active" : ""}`}
-                onClick={() => setActivePanel(prev => prev === label ? null : label)}
+                aria-label={t(`navigation.${label}`)}
+                aria-pressed={isActive}
+                onClick={() => {
+                  if (label === "Tab Manager") {
+                    setActivePanel(null);
+                  } else {
+                    setActivePanel(prev => prev === label ? null : label);
+                  }
+                }}
                 onMouseEnter={() => setHoveredBtn(label)}
                 onMouseLeave={() => setHoveredBtn(null)}
               >
                 <Icon style={{ width: ICO, height: ICO }} />
               </button>
-              <span className="sb-tooltip">{label}</span>
+              <span className="sb-tooltip">{t(`navigation.${label}`)}</span>
             </div>
           );
         })}
 
-        <div className="sb-tooltip-wrap" style={{ marginTop: "auto" }}>
+        <div style={{ marginTop: "auto", paddingTop: "8px" }} />
+        {/* Quick Theme Toggle in Sidebar */}
+        <div className="sb-tooltip-wrap" style={{ marginBottom: "4px" }}>
+          <button
+            className="sb-btn"
+            onClick={toggleTheme}
+            aria-label={t(theme === "dark" ? "app.lightMode" : "app.darkMode")}
+            onMouseEnter={() => setHoveredBtn("theme")}
+            onMouseLeave={() => setHoveredBtn(null)}
+          >
+            {theme === "dark"
+              ? (hoveredBtn === "theme" ? <SunSolid style={{ width: ICO, height: ICO, color: "#f59e0b" }} /> : <SunIcon style={{ width: ICO, height: ICO, color: "#f59e0b" }} />)
+              : (hoveredBtn === "theme" ? <MoonSolid style={{ width: ICO, height: ICO, color: "#6366f1" }} /> : <MoonIcon style={{ width: ICO, height: ICO, color: "#6366f1" }} />)}
+          </button>
+          <span className="sb-tooltip">{t(theme === "dark" ? "app.lightMode" : "app.darkMode")}</span>
+        </div>
+
+        <div className="sb-tooltip-wrap">
           <button
             className={`sb-btn${activePanel === "About" ? " active" : ""}`}
+            aria-label={t("navigation.About")}
             onClick={() => setActivePanel(prev => prev === "About" ? null : "About")}
             onMouseEnter={() => setHoveredBtn("about")}
             onMouseLeave={() => setHoveredBtn(null)}
@@ -141,43 +192,73 @@ const handleSaveAllTabs = async () => {
               ? <InfoSolid             style={{ width: ICO, height: ICO }} />
               : <InformationCircleIcon style={{ width: ICO, height: ICO }} />}
           </button>
-          <span className="sb-tooltip">About</span>
+          <span className="sb-tooltip">{t("navigation.About")}</span>
         </div>
       </div>
 
       {/* Slide-out panel */}
-      <div style={{
-        position: "absolute", top: 0, left: "48px",
+      <div inert={!isOpen} aria-hidden={!isOpen} style={{
+        position: "absolute", top: 0, insetInlineStart: "48px",
         height: "100%", width: "calc(100% - 48px)",
-        background: "var(--bg-color)",
-        borderRight: "1px solid rgba(90,90,95,0.3)",
+        background: "var(--sidebar-bg, var(--bg-color))",
+        borderInlineEnd: "1px solid var(--border-color)",
         zIndex: 20,
         transform: isOpen ? "translateX(0)" : "translateX(-100%)",
+        visibility: isOpen ? "visible" : "hidden",
         transition: "transform 0.2s ease",
         display: "flex", flexDirection: "column",
-        padding: "16px 12px", overflowY: "auto",
+        padding: "16px 14px",
+        overflowY: "auto",
+        overflowX: "hidden",
+        boxSizing: "border-box",
       }}>
-        <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--placeholder-color)", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "12px" }}>
-          {activePanel}
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          marginBottom: "14px",
+          paddingBottom: "8px",
+          borderBottom: "1px solid rgba(120, 120, 130, 0.15)",
+        }}>
+          {activePanel === "Calendar" && <CalendarSolid style={{ width: "16px", height: "16px", color: "#818cf8" }} />}
+          {activePanel === "Tags" && <TagSolid style={{ width: "16px", height: "16px", color: "#818cf8" }} />}
+          {activePanel === "History" && <ClockSolid style={{ width: "16px", height: "16px", color: "#818cf8" }} />}
+          {activePanel === "Settings" && <CogSolid style={{ width: "16px", height: "16px", color: "#818cf8" }} />}
+          {activePanel === "About" && <InfoSolid style={{ width: "16px", height: "16px", color: "#818cf8" }} />}
+          <span style={{
+            fontSize: "13px",
+            fontWeight: 800,
+            color: "var(--text-color)",
+            letterSpacing: "0.06em",
+            textTransform: "uppercase",
+            fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif",
+          }}>
+            {activePanel && t(`navigation.${activePanel}`)}
+          </span>
         </div>
         {activePanel === "Calendar" && <CalendarPanel />}
+        {activePanel === "Tags" && <TagsPanel onMenu={setMenuTab} />}
+        {activePanel === "History" && <HistoryPanel onBack={() => setActivePanel(null)} />}
+        {activePanel === "Settings" && <SettingsPanel />}
+        {activePanel === "About" && <AboutPanel />}
       </div>
 
       {/* Main content */}
-      <div style={{
+      <div inert={isOpen} style={{
         flex: 1, display: "flex", flexDirection: "column", overflow: "hidden",
+        minWidth: 0,
         transition: "filter 0.2s ease",
         filter: isOpen ? "blur(3px)" : "none",
         pointerEvents: isOpen ? "none" : "auto",
       }}>
         <Navbar
           onSearch={setSearchQuery}
-          viewMode={viewMode}
-          onViewModeChange={setViewMode}
+          sortOrder={sortOrder}
+          onToggleSort={() => setSortOrder(prev => prev === "desc" ? "asc" : "desc")}
         />
 <div style={{ display: "flex", justifyContent: "center", gap: "4px", padding: "8px 0" }}>
   <div className="sb-tooltip-wrap sb-tooltip-below">
-  <button className="sb-btn" onClick={handleSaveAllTabs}
+  <button className="sb-btn" aria-label={t("app.saveAllTabs")} onClick={handleSaveAllTabs}
     onMouseEnter={() => setHoveredBtn("saveAll")}
     onMouseLeave={() => setHoveredBtn(null)}
     style={{ color: hoveredBtn === "saveAll" ? "#60a5fa" : "var(--icon-color)", transition: "color 0.15s ease" }}>
@@ -185,11 +266,11 @@ const handleSaveAllTabs = async () => {
       ? <FolderArrowDownSolid style={{ width: ICO, height: ICO }} />
       : <FolderArrowDownIcon  style={{ width: ICO, height: ICO }} />}
   </button>
-  <span className="sb-tooltip">Save All Tabs</span>
+  <span className="sb-tooltip">{t("app.saveAllTabs")}</span>
 </div>
 
 <div className="sb-tooltip-wrap sb-tooltip-below">
-  <button className="sb-btn" onClick={handleDeleteAll}
+  <button className="sb-btn" aria-label={t("app.deleteAll")} onClick={handleDeleteAll}
     onMouseEnter={() => setHoveredBtn("deleteAll")}
     onMouseLeave={() => setHoveredBtn(null)}
     style={{ color: hoveredBtn === "deleteAll" ? "#f87171" : "var(--icon-color)", transition: "color 0.15s ease" }}>
@@ -197,7 +278,7 @@ const handleSaveAllTabs = async () => {
       ? <TrashSolid style={{ width: ICO, height: ICO }} />
       : <TrashIcon  style={{ width: ICO, height: ICO }} />}
   </button>
-  <span className="sb-tooltip">Delete All</span>
+  <span className="sb-tooltip">{t("app.deleteAll")}</span>
 </div>
 
 
@@ -205,18 +286,32 @@ const handleSaveAllTabs = async () => {
         <main style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
   {folderCount === undefined || tabCount === undefined ? (
     <div style={{ textAlign: "center", padding: "40px", color: "var(--placeholder-color)" }}>
-      Loading...
+      {t("app.loading")}
     </div>
   ) : folderCount === 0 && tabCount === 0 ? (
     <EmptyState />
   ) : (
     <>
-      {menuTab && <TabMenu tab={menuTab} onClose={() => setMenuTab(null)} />}
-      <TabList searchQuery={searchQuery} viewMode={viewMode} onMenu={setMenuTab} />
+      <TabList
+        searchQuery={searchQuery}
+        viewMode={viewMode}
+        onMenu={setMenuTab}
+        sortOrder={sortOrder}
+        onDiscussAI={(tab, groupTabs) => {
+          if (groupTabs && groupTabs.length > 0) {
+            setAiModal({ title: tab.domain || t("app.group"), tabs: groupTabs });
+          } else {
+            setAiModal({ title: tab.title, tabs: [tab] });
+          }
+        }}
+      />
     </>
   )}
 </main>
       </div>
+      {error && <div className="app-alert" role="alert">{t("app.operationFailed")} <button onClick={() => setError(false)} aria-label={t("app.close")}>×</button></div>}
+      {menuTab && <TabMenu tab={menuTab} onClose={() => setMenuTab(null)} onDiscussAI={(tab) => setAiModal({ title: tab.title, tabs: [tab] })} />}
+      {aiModal && <AIDiscussModal title={aiModal.title} tabs={aiModal.tabs} onClose={() => setAiModal(null)} />}
     </div>
   );
 }

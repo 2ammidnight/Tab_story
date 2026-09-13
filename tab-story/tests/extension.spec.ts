@@ -10,7 +10,7 @@ async function loadExtension() {
       '--load-extension=' + pathToExtension,
     ],
   });
-  const worker = await context.waitForEvent('serviceworker', { timeout: 10000 });
+  const worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker', { timeout: 10000 });
   const extId = worker.url().split('/')[2];
   const page = await context.newPage();
   await page.goto('chrome-extension://' + extId + '/sidepanel.html');

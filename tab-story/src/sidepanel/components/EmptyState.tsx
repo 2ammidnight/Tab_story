@@ -1,4 +1,6 @@
+import { useI18n } from "../../i18n/useI18n";
 export function EmptyState() {
+  const { t: tr } = useI18n();
   return (
     <div style={{
       display: "flex", flexDirection: "column", alignItems: "center",
@@ -11,11 +13,9 @@ export function EmptyState() {
           <path d="M3 7a2 2 0 0 1 2-2h3l2 3h9a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
         </svg>
       </div>
-      <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-color)", marginBottom: 8 }}>
-        No saved tabs yet
-      </p>
+      <p style={{ fontSize: 14, fontWeight: 600, color: "var(--text-color)", marginBottom: 8 }}>{tr("tabs.empty")}</p>
       <p style={{ fontSize: 12, color: "var(--placeholder-color)", lineHeight: 1.6, maxWidth: 220 }}>
-        Press <strong>+</strong> to save the current tab, or use <strong>↓</strong> to save all open tabs at once.
+        {tr("tabs.emptyHint")}
       </p>
     </div>
   );

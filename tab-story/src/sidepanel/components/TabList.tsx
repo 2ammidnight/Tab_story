@@ -1,11 +1,25 @@
+import { useI18n } from "../../i18n/useI18n";
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import Fuse from "fuse.js";
 import { db } from "../db";
-import type { Folder as FolderType, SavedTab } from "../db";
+import type { SavedTab } from "../db";
 import type { ViewMode } from "../App";
+import { EllipsisVerticalIcon } from "@heroicons/react/24/solid";
+import { SparklesIcon, DocumentTextIcon, CalendarIcon } from "@heroicons/react/24/outline";
+import { isToday, isYesterday } from "date-fns";
+
+function formatTabTitle(title: string): string {
+  if (!title) return "";
+  const words = title.trim().split(/\s+/);
+  const twoWords = words.slice(0, 2).join(" ");
+  if (twoWords.length > 10) {
+    return `${twoWords.slice(0, 10)}...`;
+  }
+  return words.length > 2 ? `${twoWords}...` : twoWords;
+}
 
 
 
@@ -16,6 +30,19 @@ function Tooltip({ title, url, children }: {
   const [visible, setVisible] = useState(false);
   const [coords, setCoords] = useState({ left: 0, top: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!visible) return;
+    const dismiss = () => setVisible(false);
+    window.addEventListener('scroll', dismiss, true);
+    window.addEventListener('blur', dismiss);
+    window.addEventListener('pointerdown', dismiss, true);
+    return () => {
+      window.removeEventListener('scroll', dismiss, true);
+      window.removeEventListener('blur', dismiss);
+      window.removeEventListener('pointerdown', dismiss, true);
+    };
+  }, [visible]);
 
   useEffect(() => {
     if (visible && containerRef.current) {
@@ -30,9 +57,17 @@ function Tooltip({ title, url, children }: {
   return (
     <div
       ref={containerRef}
-      style={{ display: "inline-flex", alignItems: "center" }}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        minWidth: 0,
+        maxWidth: "100%",
+        overflow: "hidden",
+      }}
       onMouseEnter={() => setVisible(true)}
       onMouseLeave={() => setVisible(false)}
+      onClickCapture={() => setVisible(false)}
+      onKeyDownCapture={() => setVisible(false)}
     >
       {children}
       
@@ -106,8 +141,16 @@ function TagPill({ label }: { label: string }) {
 
 // ─── List Row ───────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function TabRowList({ tab, onMenu, mode }: { tab: SavedTab; onMenu?: (tab: SavedTab) => void; mode?: "default" | "notes" }) {
+function TabRowList({
+  tab,
+  onMenu,
+}: {
+  tab: SavedTab;
+  onMenu?: (tab: SavedTab) => void;
+  mode?: "default" | "notes";
+}) {
+
+  const { t: tr, formatDate } = useI18n();
   const [hovered, setHovered] = useState(false);
 
   return (
@@ -115,116 +158,165 @@ function TabRowList({ tab, onMenu, mode }: { tab: SavedTab; onMenu?: (tab: Saved
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        display: "flex", alignItems: "flex-start", gap: "9px",
-        padding: "9px 14px",
-        borderTop: "1px solid rgba(90,90,95,0.15)",
-        background: hovered ? "rgba(120,120,130,0.09)" : "transparent",
+        display: "flex",
+        alignItems: "center",
+        padding: "7px 10px",
+        gap: "6px",
+        borderTop: "1px solid var(--border-color)",
+        background: hovered ? "var(--row-hover)" : "transparent",
         transition: "background 0.15s ease",
+        width: "100%",
+        boxSizing: "border-box",
+        minWidth: 0,
       }}
     >
-      {/* Perfect Alignment Branch Arrow 
-        Width is exactly 22px (same as parent icon), line drops perfectly at x=11 (center).
-        It curves and points directly at the vertical center of the favicon.
-      */}
-      <svg 
-        width="22" height="22" viewBox="0 0 22 22" 
-        fill="none" stroke="var(--placeholder-color)" strokeWidth="2" 
-        strokeLinecap="round" strokeLinejoin="round"
-        style={{ flexShrink: 0, opacity: 0.65, marginTop: "1px" }}
+      {/* Left side: Branch, Favicon, Title, Badges */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          flex: 1,
+          minWidth: 0,
+          overflow: "hidden",
+        }}
       >
-        {/* Drop down, curve, and horizontal line */}
-        <path d="M 11 -2 V 7 A 4 4 0 0 0 15 11 H 22" />
-        {/* Thicker Pointy Arrowhead */}
-        <polyline points="18 7 22 11 18 15" />
-      </svg>
+        {/* Sleek branch icon */}
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="var(--placeholder-color)"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{ flexShrink: 0, opacity: 0.6 }}
+        >
+          <path d="M 4 1 V 9 A 3 3 0 0 0 7 12 H 14" />
+          <polyline points="11 9 14 12 11 15" />
+        </svg>
 
-      {/* Favicon with tooltip */}
-      <Tooltip title={tab.title} url={tab.url}>
-        <div style={{ marginTop: "2px" }}>
-          <TabFavicon tab={tab} size={20} />
-        </div>
-      </Tooltip>
+        {/* Favicon */}
+        <Tooltip title={tab.title} url={tab.url}>
+          <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+            <TabFavicon tab={tab} size={16} />
+          </div>
+        </Tooltip>
 
-      {/* Content */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        
-        {/* Main Row */}
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          
-          {/* Title (Clicking this opens the URL) */}
+        {/* Max 2-word Title (Bounded to limited area) */}
+        <div style={{ minWidth: 0, flex: "0 1 auto", overflow: "hidden" }}>
           <Tooltip title={tab.title} url={tab.url}>
             <span
               onClick={() => chrome.tabs.create({ url: tab.url })}
               style={{
-fontSize: "11px", fontWeight: 600, color: "var(--text-color)",
-                whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                maxWidth: "110px", cursor: "pointer",
+                fontSize: "12px",
+                fontWeight: 600,
+                color: "var(--text-color)",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                cursor: "pointer",
+                display: "block",
+                maxWidth: "75px",
               }}
             >
-              {tab.title}
+              {formatTabTitle(tab.title)}
             </span>
           </Tooltip>
-
-          {/* Pin (Moved next to the title so it doesn't break tree alignment!) */}
-          {tab.pinned && (
-            <span style={{ fontSize: "11px", flexShrink: 0, marginTop: "1px" }}>📌</span>
-          )}
-
-          {/* User-added Tags */}
-          {tab.tags?.slice(0, 2).map(tag => <TagPill key={tag} label={tag} />)}
-
-          {/* Date (Pushed to the right using marginLeft: auto) */}
-          <span style={{
-            fontSize: "10.5px", color: "var(--placeholder-color)", flexShrink: 0,
-marginLeft: "auto",
-          }}>
-            {new Date(tab.createdAt).toLocaleDateString("en-GB")}
-          </span>
-
-          {/* Actions (Always visible) */}
-          <div style={{
-display: "flex", gap: "2px", flexShrink: 0, marginLeft: "4px",
-          }}>
-           
-
-            {/* "More Options" Button */}
-            <button
-              onClick={e => { 
-                e.stopPropagation(); 
-               onMenu?.(tab); 
-              }}
-              title="More options"
-              style={{
-                width: "22px", height: "22px", borderRadius: "6px", border: "none",
-background: "transparent", color: "var(--placeholder-color)",
-cursor: "pointer", display: "flex", alignItems: "center",
-justifyContent: "center", flexShrink: 0,
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="1.5"></circle>
-                <circle cx="12" cy="5" r="1.5"></circle>
-                <circle cx="12" cy="19" r="1.5"></circle>
-              </svg>
-            </button>
-          </div>
         </div>
 
-       {tab.notes ? (
-  <Tooltip title="Note" url={tab.notes}>
-    <span style={{
-      fontSize: "11px", marginTop: "3px",
-      display: "inline-flex", alignItems: "center", gap: "3px",
-      color: "#a78bfa", cursor: "default",
-    }}>
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-      </svg>
-      note
-    </span>
-  </Tooltip>
-) : null}
+        {/* Pin Badge */}
+        {tab.pinned && (
+          <span style={{ fontSize: "11px", flexShrink: 0 }} title={tr("tabs.pinned")}>📌</span>
+        )}
+
+        {/* Note Badge with crisp Note icon */}
+        {tab.notes && (
+          <Tooltip title={tr("common.note")} url={tab.notes}>
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                onMenu?.(tab);
+              }}
+              title={tab.notes}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: "18px",
+                height: "18px",
+                borderRadius: "5px",
+                background: "rgba(167, 139, 250, 0.18)",
+                color: "#a78bfa",
+                flexShrink: 0,
+                cursor: "pointer",
+              }}
+            >
+              <DocumentTextIcon style={{ width: "12px", height: "12px" }} />
+            </span>
+          </Tooltip>
+        )}
+      </div>
+
+      {/* Right side: Date, 3-dots button (Stationary, Aligned, Clean) */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          marginInlineStart: "auto",
+          flexShrink: 0,
+        }}
+      >
+        {/* Date */}
+        <span
+          style={{
+            fontSize: "10.5px",
+            color: "var(--placeholder-color)",
+            whiteSpace: "nowrap",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {formatDate(tab.createdAt)}
+        </span>
+
+        {/* Crisp, stationary 3-dots menu button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onMenu?.(tab);
+          }}
+          title={tr("common.moreOptions")}
+          style={{
+            width: "22px",
+            height: "22px",
+            borderRadius: "6px",
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            padding: 0,
+            color: "var(--text-color)",
+            transition: "background 0.15s ease",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "var(--btn-hover-bg)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "transparent";
+          }}
+        >
+          <EllipsisVerticalIcon
+            style={{
+              width: "16px",
+              height: "16px",
+            }}
+          />
+        </button>
       </div>
     </div>
   );
@@ -232,6 +324,7 @@ justifyContent: "center", flexShrink: 0,
 // ─── Grid Card ──────────────────────────────────────────────
 
 function TabCardGrid({ tab, onMenu }: { tab: SavedTab; onMenu?: (tab: SavedTab) => void }) {
+  const { t: tr } = useI18n();
   const [hovered, setHovered] = useState(false);
 
   return (
@@ -241,12 +334,12 @@ function TabCardGrid({ tab, onMenu }: { tab: SavedTab; onMenu?: (tab: SavedTab) 
       onClick={() => chrome.tabs.create({ url: tab.url })}
       style={{
         borderRadius: "12px",
-        border: "1px solid rgba(90,90,95,0.25)",
-        background: hovered ? "rgba(120,120,130,0.12)" : "rgba(80,80,90,0.1)",
+        border: "1px solid var(--folder-border)",
+        background: hovered ? "var(--row-hover)" : "var(--card-bg)",
         padding: "12px", cursor: "pointer",
         transition: "all 0.15s ease",
         transform: hovered ? "translateY(-1px)" : "none",
-        boxShadow: hovered ? "0 4px 12px rgba(0,0,0,0.12)" : "none",
+        boxShadow: hovered ? "0 4px 12px rgba(0,0,0,0.12)" : "0 1px 3px rgba(0,0,0,0.04)",
         position: "relative",
         display: "flex", flexDirection: "column", gap: "8px",
       }}
@@ -275,7 +368,7 @@ function TabCardGrid({ tab, onMenu }: { tab: SavedTab; onMenu?: (tab: SavedTab) 
             e.stopPropagation(); 
             onMenu?.(tab);
           }}
-          title="More options"
+          title={tr("common.moreOptions")}
           style={{
             width: "24px", height: "24px", borderRadius: "6px", border: "none",
             background: "transparent", color: "var(--text-color)",
@@ -284,11 +377,7 @@ function TabCardGrid({ tab, onMenu }: { tab: SavedTab; onMenu?: (tab: SavedTab) 
             opacity: 1,
           }}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="12" cy="12" r="1.5"></circle>
-            <circle cx="12" cy="5" r="1.5"></circle>
-            <circle cx="12" cy="19" r="1.5"></circle>
-          </svg>
+          <EllipsisVerticalIcon style={{ width: "16px", height: "16px" }} />
         </button>
       </div>
 
@@ -314,7 +403,7 @@ display: "-webkit-box", WebkitLineClamp: 1,
 WebkitBoxOrient: "vertical",
 maxWidth: "80px",
           }}>
-            {tab.title}
+            {formatTabTitle(tab.title)}
           </span>
         </div>
       </Tooltip>
@@ -323,16 +412,13 @@ maxWidth: "80px",
       <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "auto", flexWrap: "wrap" }}>
         {tab.tags?.slice(0, 3).map(tag => <TagPill key={tag} label={tag} />)}
         {tab.notes && (
-          <Tooltip title="Note" url={tab.notes}>
+          <Tooltip title={tr("common.note")} url={tab.notes}>
             <span style={{
               fontSize: "11px", display: "inline-flex", alignItems: "center", gap: "3px",
               color: "#a78bfa", cursor: "default",
             }}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-              </svg>
-              note
+              <DocumentTextIcon style={{ width: "12px", height: "12px" }} />
+              {tr('common.note')}
             </span>
           </Tooltip>
         )}
@@ -347,12 +433,18 @@ export function TabList({
   viewMode = "list",
   onMenu,
   mode = "default",
+  sortOrder = "desc",
+  onDiscussAI,
 }: {
   searchQuery?: string;
   viewMode?: ViewMode;
   onMenu?: (tab: SavedTab) => void;
   mode?: "default" | "notes";
+  sortOrder?: "desc" | "asc";
+  onDiscussAI?: (tab: SavedTab, groupTabs?: SavedTab[]) => void;
 }) {
+
+  const { t: tr, formatDate } = useI18n();
   const folders = useLiveQuery(() => db.folders.toArray());
   const tabs    = useLiveQuery(() => db.tabs.toArray());
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
@@ -367,8 +459,8 @@ export function TabList({
         color: "var(--placeholder-color)", fontSize: "13px",
       }}>
         <span style={{ fontSize: "32px" }}>📭</span>
-        <span style={{ fontWeight: 500 }}>No saved tabs yet</span>
-        <span style={{ fontSize: "11px", opacity: 0.6 }}>Click + to save current tab</span>
+        <span style={{ fontWeight: 500 }}>{tr("tabs.empty")}</span>
+        <span style={{ fontSize: "11px", opacity: 0.6 }}>{tr("tabs.saveHint")}</span>
       </div>
     );
   }
@@ -385,97 +477,293 @@ export function TabList({
     });
   }
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-      {folders.map((folder: FolderType) => {
-        const allFolderTabs = tabs.filter(t => t.folderId === folder.id);
-        const folderTabs = (() => {
-          if (searchQuery.trim() === "") return allFolderTabs;
+  function getDateLabel(timestamp: number): string {
+    const d = new Date(timestamp);
+    if (isToday(d)) return tr("common.today");
+    if (isYesterday(d)) return tr("common.yesterday");
+    return formatDate(d);
+  }
+
+  const activeTabs = tabs.filter(t => !t.deletedAt);
+
+  const sortedFolders = [...folders].sort((a, b) => {
+    const aLatest = Math.max(0, ...activeTabs.filter(t => t.folderId === a.id).map(t => t.createdAt));
+    const bLatest = Math.max(0, ...activeTabs.filter(t => t.folderId === b.id).map(t => t.createdAt));
+    return sortOrder === "desc" ? bLatest - aLatest : aLatest - bLatest;
+  });
+
+  const foldersWithTabs = sortedFolders
+    .map(folder => {
+      const allFolderTabs = activeTabs.filter(t => t.folderId === folder.id);
+      const folderTabs = (() => {
+        let list = allFolderTabs;
+        if (searchQuery.trim() !== "") {
           const fuse = new Fuse(allFolderTabs, {
             keys: ["title", "url", "notes", "tags"],
             threshold: 0.35,
             minMatchCharLength: 2,
           });
-          return fuse.search(searchQuery).map(r => r.item);
-        })();
-        if (folderTabs.length === 0) return null;
+          list = fuse.search(searchQuery).map(r => r.item);
+        }
+        return [...list].sort((a, b) => {
+          if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
+          return sortOrder === "desc" ? b.createdAt - a.createdAt : a.createdAt - b.createdAt;
+        });
+      })();
 
-        const isCollapsed = collapsed.has(folder.id!);
+      if (folderTabs.length === 0) return null;
 
-        return (
-          <div key={folder.id} style={{
-            borderRadius: "12px",
-            border: "1px solid rgba(90,90,95,0.25)",
-            overflow: "hidden",
-            background: "rgba(80,80,90,0.18)",
-          }}>
-            {/* Folder Header */}
-            <button
-              onClick={() => toggleFolder(folder.id!)}
-              style={{
-                display: "flex", alignItems: "center", gap: "10px",
-                width: "100%", padding: "11px 14px",
-                background: "transparent", border: "none",
-                cursor: "pointer", color: "var(--text-color)",
-              }}
-            >
-              <img
-                src={`https://www.google.com/s2/favicons?domain=${folder.domain}&sz=32`}
-                width={22} height={22}
-                style={{ borderRadius: "5px", flexShrink: 0 }}
-                onError={e => {
-                  (e.target as HTMLImageElement).src =
-                    `https://icons.duckduckgo.com/ip3/${folder.domain}.ico`;
-                }}
-              />
+      const latestTime = Math.max(folder.createdAt || 0, ...folderTabs.map(t => t.createdAt));
+      const dateLabel = getDateLabel(latestTime);
 
-              <span style={{
-                fontSize: "15px", fontWeight: 700, flex: 1, textAlign: "left",
-                letterSpacing: "-0.01em",
-                fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif",
-              }}>
-                {folder.name}
-              </span>
+      return {
+        folder,
+        folderTabs,
+        latestTime,
+        dateLabel,
+      };
+    })
+    .filter((f): f is NonNullable<typeof f> => f !== null);
 
-              <span style={{
-                fontSize: "11px", padding: "2px 9px", borderRadius: "20px",
-                background: "rgba(120,120,130,0.2)",
-                color: "var(--placeholder-color)", marginRight: "6px",
-              }}>
-                {folderTabs.length} {folderTabs.length === 1 ? "tab" : "tabs"}
-              </span>
+  if (foldersWithTabs.length === 0) {
+    return (
+      <div style={{
+        display: "flex", flexDirection: "column", alignItems: "center",
+        justifyContent: "center", height: "60vh", gap: "8px",
+        color: "var(--placeholder-color)", fontSize: "13px",
+      }}>
+        <span style={{ fontSize: "32px" }}>📭</span>
+        <span style={{ fontWeight: 500 }}>{tr("tabs.empty")}</span>
+        <span style={{ fontSize: "11px", opacity: 0.6 }}>{tr("tabs.saveHint")}</span>
+      </div>
+    );
+  }
 
-              <span style={{
-                fontSize: "11px", color: "var(--placeholder-color)",
-                transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
-                transition: "transform 0.2s ease", display: "inline-block",
-              }}>▾</span>
-            </button>
+  // Group by dateLabel
+  const dateGroups: { dateLabel: string; items: typeof foldersWithTabs }[] = [];
+  for (const item of foldersWithTabs) {
+    let group = dateGroups.find(g => g.dateLabel === item.dateLabel);
+    if (!group) {
+      group = { dateLabel: item.dateLabel, items: [] };
+      dateGroups.push(group);
+    }
+    group.items.push(item);
+  }
 
-            {/* Tabs */}
-            {!isCollapsed && (
-              viewMode === "list"
-                ? folderTabs.map(tab => (
-                   <TabRowList key={tab.id} tab={tab} onMenu={onMenu} mode={mode} />
-                  ))
-                : (
-                  <div className="tab-grid-scroll" style={{
-  display: "flex",
-  gap: "8px", padding: "8px 12px 12px",
-  borderTop: "1px solid rgba(90,90,95,0.15)",
-  overflowX: "auto", scrollSnapType: "x mandatory",
-                  }}>
-                    {folderTabs.map(tab => (
-<div style={{ minWidth: "140px", maxWidth: "140px", flexShrink: 0, scrollSnapAlign: "center", }}>
-  <TabCardGrid key={tab.id} tab={tab} onMenu={onMenu} />
-</div>
-                    ))}
-                  </div>
-                )
-            )}
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+      {dateGroups.map((group, groupIdx) => (
+        <div key={group.dateLabel} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          {/* Small Heading Outside The Card (media_1789174027024.png) */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "7px 12px",
+              background: "rgba(120, 120, 130, 0.10)",
+              border: "1px solid var(--border-color)",
+              borderRadius: "8px",
+              fontSize: "11.5px",
+              fontWeight: 700,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              color: "var(--text-color)",
+              marginTop: groupIdx > 0 ? "14px" : "2px",
+              marginBottom: "2px",
+            }}
+          >
+            <CalendarIcon style={{ width: "15px", height: "15px", color: "var(--placeholder-color)" }} />
+            {group.dateLabel}
           </div>
-        );
-      })}
+
+          {/* Cards under this date heading */}
+          {group.items.map(({ folder, folderTabs }) => {
+            const isCollapsed = collapsed.has(folder.id!);
+            const tabWithNote = folderTabs.find(t => t.notes);
+
+            return (
+              <div key={folder.id} style={{
+                borderRadius: "12px",
+                border: "1px solid var(--folder-border)",
+                overflow: "hidden",
+                background: "var(--folder-bg)",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+              }}>
+                {/* Folder Header */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    width: "100%",
+                    padding: "9px 12px",
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <button
+                    onClick={() => toggleFolder(folder.id!)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      flex: 1,
+                      minWidth: 0,
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "var(--text-color)",
+                      padding: 0,
+                      textAlign: "start",
+                    }}
+                  >
+                    <img
+                      src={`https://www.google.com/s2/favicons?domain=${folder.domain}&sz=32`}
+                      width={20}
+                      height={20}
+                      style={{ borderRadius: "5px", flexShrink: 0 }}
+                      onError={e => {
+                        (e.target as HTMLImageElement).src =
+                          `https://icons.duckduckgo.com/ip3/${folder.domain}.ico`;
+                      }}
+                    />
+
+                    <span style={{
+                      fontSize: "14px",
+                      fontWeight: 700,
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      letterSpacing: "-0.01em",
+                      fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif",
+                    }}>
+                      {folder.name}
+                    </span>
+                  </button>
+
+                  {/* Note badge or tab count pill */}
+                  {tabWithNote ? (
+                    <span
+                      title={tabWithNote.notes}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "3px",
+                        fontSize: "11px",
+                        padding: "2px 7px",
+                        borderRadius: "12px",
+                        background: "rgba(167,139,250,0.15)",
+                        border: "1px solid rgba(167,139,250,0.3)",
+                        color: "#a78bfa",
+                        fontWeight: 600,
+                        flexShrink: 0,
+                      }}
+                    >
+                      <DocumentTextIcon style={{ width: "12px", height: "12px" }} />
+                      {tr('common.note')}
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        fontSize: "11px",
+                        padding: "2px 8px",
+                        borderRadius: "12px",
+                        background: "rgba(120, 120, 130, 0.12)",
+                        color: "var(--placeholder-color)",
+                        fontWeight: 600,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {tr('common.count', { count: folderTabs.length })}
+                    </span>
+                  )}
+
+                  {/* AI Sparkles button for folder/group of tabs */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDiscussAI?.(folderTabs[0], folderTabs);
+                    }}
+                    title={tr("tabs.discuss")}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: "24px",
+                      height: "24px",
+                      borderRadius: "6px",
+                      border: "none",
+                      background: "transparent",
+                      color: "#a855f7",
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      padding: 0,
+                      transition: "all 0.15s ease",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "rgba(168, 85, 247, 0.15)";
+                      e.currentTarget.style.transform = "scale(1.1)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "transparent";
+                      e.currentTarget.style.transform = "none";
+                    }}
+                  >
+                    <SparklesIcon style={{ width: "15px", height: "15px" }} />
+                  </button>
+
+                  {/* Collapse Chevron */}
+                  <button
+                    onClick={() => toggleFolder(folder.id!)}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: "2px 4px",
+                      color: "var(--placeholder-color)",
+                      fontSize: "11px",
+                      transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+                      transition: "transform 0.2s ease",
+                      flexShrink: 0,
+                    }}
+                  >
+                    ▾
+                  </button>
+                </div>
+
+                {/* Tabs */}
+                {!isCollapsed && (
+                  viewMode === "list"
+                    ? folderTabs.map(tab => (
+                       <TabRowList
+                         key={tab.id}
+                         tab={tab}
+                         onMenu={onMenu}
+                         mode={mode}
+                       />
+                      ))
+                    : (
+                      <div className="tab-grid-scroll" style={{
+                        display: "flex",
+                        gap: "8px", padding: "8px 12px 12px",
+                        borderTop: "1px solid rgba(90,90,95,0.15)",
+                        overflowX: "auto", scrollSnapType: "x mandatory",
+                      }}>
+                        {folderTabs.map(tab => (
+                          <div key={tab.id} style={{ minWidth: "140px", maxWidth: "140px", flexShrink: 0, scrollSnapAlign: "center" }}>
+                            <TabCardGrid key={tab.id} tab={tab} onMenu={onMenu} />
+                          </div>
+                        ))}
+                      </div>
+                    )
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }
