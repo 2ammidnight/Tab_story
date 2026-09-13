@@ -34,18 +34,13 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            tab-story/package-lock.json
-
-      - name: Install repository dependencies
-        run: npm ci --ignore-scripts
+          cache-dependency-path: tab-story/package-lock.json
 
       - name: Install extension dependencies
         run: npm ci --prefix tab-story --ignore-scripts
 
       - name: Lint
-        run: npm run lint
+        run: npm run lint --prefix tab-story
 
       - name: Type-check
         run: npm run typecheck --prefix tab-story
