@@ -1,81 +1,71 @@
-name: CI - Run Tests
+name: CI/CD
 
 on:
   push:
-    branches: ["main", "dev", "feature/**"]
+    branches:
+      - main
+      - dev
+      - "feature/**"
   pull_request:
-    branches: ["main"]
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  test:
-    name: Run Jest Tests
+  validate-build:
+    name: Validate and build extension
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
-      - name: Checkout repository
+      - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "18"
-          cache: "npm"
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            tab-story/package-lock.json
 
-      - name: Install dependencies
-        run: npm ci --prefer-offline
+      - name: Install repository dependencies
+        run: npm ci --ignore-scripts
+
       - name: Install extension dependencies
-        run: npm ci --prefix tab-story --prefer-offline
+        run: npm ci --prefix tab-story --ignore-scripts
 
-      name: CI/CD
+      - name: Lint
+        run: npm run lint
 
-      on:
-        push:
-          branches: [main, dev, 'feature/**']
-        pull_request:
-          branches: [main, dev]
+      - name: Type-check
+        run: npm run typecheck --prefix tab-story
 
-      jobs:
-        ci:
-          name: CI - Install, Lint, Test, Build
-          runs-on: ubuntu-latest
+      - name: Run deterministic checks
+        run: npm run test:qa --prefix tab-story
 
-          steps:
-            - name: Checkout repository
-              uses: actions/checkout@v4
+      - name: Build extension
+        run: npm run build
+        env:
+          NODE_ENV: production
 
-            - name: Setup Node.js
-              uses: actions/setup-node@v4
-              with:
-                node-version: '20'
-                cache: 'npm'
+      - name: Package extension
+        working-directory: tab-story/dist
+        run: zip -r "../../tab-story-${GITHUB_SHA}.zip" .
 
-            - name: Install root dependencies
-              run: npm ci --prefer-offline
-
-            - name: Install extension dependencies
-              run: npm ci --prefix tab-story --prefer-offline
-
-            - name: Run linter
-              run: npm run lint
-
-            - name: Run tests
-              run: npm test
-
-            - name: Build
-              run: npm run build
-              env:
-                NODE_ENV: production
-
-            - name: Package distributable
-              run: |
-                mkdir -p releases
-                if [ -d "tab-story/dist" ]; then
-                  zip -r releases/tab-story-${{ github.sha }}.zip tab-story/dist/
-                fi
-
-            - name: Upload build artifact
-              uses: actions/upload-artifact@v4
-              with:
-                name: tab-story-build
-                path: releases/
-                retention-days: 30
+      - name: Upload extension package
+        uses: actions/upload-artifact@v4
+        with:
+          name: tab-story-${{ github.sha }}
+          path: tab-story-${{ github.sha }}.zip
+          if-no-files-found: error
+          retention-days: 30
