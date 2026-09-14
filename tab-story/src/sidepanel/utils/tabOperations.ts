@@ -26,7 +26,10 @@ export async function saveTab(
     }
 
     const existing = await db.tabs.where('url').equals(tabUrl).first();
-    if (existing) return;
+    if (existing) {
+      if (existing.deletedAt) await db.tabs.update(existing.id!, { deletedAt: undefined, scheduledAt: undefined, notifiedScheduledAt: undefined });
+      return;
+    }
 
     await db.tabs.add({
       url: tabUrl,
@@ -71,7 +74,10 @@ export async function saveAllTabs(): Promise<void> {
       }
 
       const existing = await db.tabs.where('url').equals(tab.url).first();
-      if (existing) continue;
+      if (existing) {
+        if (existing.deletedAt) await db.tabs.update(existing.id!, { deletedAt: undefined, scheduledAt: undefined, notifiedScheduledAt: undefined });
+        continue;
+      }
 
       await db.tabs.add({
         url: tab.url,

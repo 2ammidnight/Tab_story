@@ -134,7 +134,6 @@ export function AIDiscussModal({
 
   const primaryTab = tabs[targetIndex] || tabs[0];
   const tabFavicon =
-    primaryTab?.favicon ||
     (primaryTab?.url
       ? `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(primaryTab.url)}&size=32`
       : "");
@@ -474,7 +473,7 @@ export function AIDiscussModal({
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: "12px", fontWeight: 800 }}>Summarize selected tab</div>
-                  <div style={{ fontSize: "10px", color: "var(--placeholder-color)", marginTop: "2px" }}>Essential ideas, context, and useful details</div>
+                  <div style={{ fontSize: "11px", color: "var(--placeholder-color)", marginTop: "2px" }}>Sends this page’s extracted text and your question to Google Gemini.</div>
                 </div>
                 <span style={{ color: "#818cf8", fontSize: "16px" }}>→</span>
               </button>

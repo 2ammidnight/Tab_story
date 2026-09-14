@@ -1,4 +1,5 @@
 import { useI18n } from "../../i18n/useI18n";
+import { getFaviconForDomain } from '../utils/url';
 import { useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../db";
@@ -209,7 +210,7 @@ function TabListWithCustomTabs({
           onMouseLeave={e => (e.currentTarget.style.background = "rgba(120,120,130,0.06)")}
         >
           <img
-            src={tab.favicon || `https://www.google.com/s2/favicons?domain=${tab.domain}&sz=32`}
+            src={getFaviconForDomain(tab.domain)}
             width={16}
             height={16}
             style={{ borderRadius: "3px", flexShrink: 0 }}

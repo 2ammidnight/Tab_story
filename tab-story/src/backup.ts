@@ -58,10 +58,28 @@ async function restore(id: string) {
   for (const table of db.tables) {
     const rows = data.tables[table.name];
     if (!Array.isArray(rows) || rows.length > 100000 || rows.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw new Error('Invalid backup table: ' + table.name);
+    const ids = new Set<unknown>();
+    for (const row of rows) {
+      if (table.name === 'reminderState') continue;
+      if (!Number.isSafeInteger(row.id) || row.id < 1 || ids.has(row.id)) throw new Error('Invalid or duplicate record ID: ' + table.name);
+      ids.add(row.id);
+      for (const field of ['createdAt', 'updatedAt', 'scheduledAt', 'notifiedScheduledAt', 'completedAt', 'completedScheduledAt', 'deletedAt']) {
+        if (row[field] !== undefined && (!Number.isSafeInteger(row[field]) || row[field] < 0 || row[field] > 8640000000000000)) throw new Error('Invalid backup timestamp.');
+      }
+    }
   }
   for (const tab of data.tables.tabs) {
     if (typeof tab.url !== 'string' || !/^https?:\/\//i.test(tab.url) || typeof tab.title !== 'string' || !Array.isArray(tab.tags) || !tab.tags.every((tag: unknown) => typeof tag === 'string')) throw new Error('Invalid saved tab in backup.');
+    const url = new URL(tab.url);
+    if (!['http:', 'https:'].includes(url.protocol) || typeof tab.notes !== 'string' || typeof tab.pinned !== 'boolean') throw new Error('Invalid saved tab fields.');
+    tab.domain = url.hostname.replace(/^www\./, '');
+    tab.notifiedScheduledAt = undefined;
   }
+  for (const folder of data.tables.folders) if (typeof folder.name !== 'string' || typeof folder.domain !== 'string') throw new Error('Invalid folder.');
+  for (const folder of data.tables.studyFolders) if (typeof folder.name !== 'string' || typeof folder.emoji !== 'string' || typeof folder.autoNote !== 'string') throw new Error('Invalid study folder.');
+  for (const topic of data.tables.studyTopics) if (typeof topic.name !== 'string' || typeof topic.autoNote !== 'string' || !Number.isSafeInteger(topic.studyFolderId)) throw new Error('Invalid study topic.');
+  // Notification handles belong to this installation, not the backup's machine.
+  data.tables.reminderState = [];
   const preferences: Record<string, string> = {};
   for (const key of PREFS) if (typeof data.preferences[key] === 'string') preferences[key] = data.preferences[key];
   // Preserve the current state locally before an explicitly confirmed replacement.
@@ -94,7 +112,10 @@ export async function handleBackup(operation: string, id?: string) {
       if (!(await state()).connected) throw new Error('Connect Google first.');
       if (operation === 'list') return { files: await files(await token()) };
       if (operation === 'backup') await backup();
-      else if (operation === 'restore' && id) await restore(id);
+      else if (operation === 'restore') {
+        if (typeof id !== 'string' || !id) throw new Error('Select a backup to restore.');
+        await restore(id);
+      }
       else if (operation === 'enable') { await backup(); await update({ daily: true }); }
       else if (operation === 'disable') await update({ daily: false });
       else if (!['backup', 'restore'].includes(operation)) throw new Error('Unknown backup action.');

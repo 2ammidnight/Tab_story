@@ -12,15 +12,8 @@ class AIError extends Error {
 }
 
 function timeoutSignal(milliseconds: number, parent?: AbortSignal): AbortSignal {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new DOMException('Request timed out.', 'TimeoutError')), milliseconds);
-  const abort = () => controller.abort(parent?.reason);
-  parent?.addEventListener('abort', abort, { once: true });
-  controller.signal.addEventListener('abort', () => {
-    clearTimeout(timer);
-    parent?.removeEventListener('abort', abort);
-  }, { once: true });
-  return controller.signal;
+  const timeout = AbortSignal.timeout(milliseconds);
+  return parent ? AbortSignal.any([parent, timeout]) : timeout;
 }
 
 function geminiError(status: number, detail: string, action = 'request'): Error {
@@ -74,14 +67,15 @@ function chooseGeminiModel(models: string[]): string {
 function waitForRetry(milliseconds: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
-      reject(signal.reason || new DOMException('Request cancelled.', 'AbortError'));
+      reject(signal?.reason || new DOMException('Request cancelled.', 'AbortError'));
       return;
     }
-    const timer = setTimeout(resolve, milliseconds);
-    signal?.addEventListener('abort', () => {
+    const abort = () => {
       clearTimeout(timer);
-      reject(signal.reason || new DOMException('Request cancelled.', 'AbortError'));
-    }, { once: true });
+      reject(signal?.reason || new DOMException('Request cancelled.', 'AbortError'));
+    };
+    const timer = setTimeout(() => { signal?.removeEventListener('abort', abort); resolve(); }, milliseconds);
+    signal?.addEventListener('abort', abort, { once: true });
   });
 }
 
@@ -93,7 +87,7 @@ async function listGeminiTextModels(key: string, action = 'key validation'): Pro
       headers: { 'x-goog-api-key': key },
       signal: timeoutSignal(15000),
       credentials: 'omit',
-      redirect: 'follow',
+      redirect: 'error',
     });
   } catch (cause) {
     if (cause instanceof Error && ['AbortError', 'TimeoutError'].includes(cause.name)) throw cause;
@@ -278,7 +272,7 @@ async function callGemini(
     body: JSON.stringify(payload),
     signal: timeoutSignal(45000, signal),
     credentials: 'omit',
-    redirect: 'follow',
+    redirect: 'error',
   });
 
   if (!response.ok) {
@@ -453,7 +447,7 @@ export async function handleAI(request: Record<string, unknown>) {
     }
 
     const sources = request.sources as Source[];
-    if (!Array.isArray(sources) || !sources.length || sources.length > 5 || sources.some((s) => !s || typeof s.text !== 'string' || s.text.length < 80 || typeof s.url !== 'string' || !/^https?:\/\//i.test(s.url))) {
+    if (!Array.isArray(sources) || !sources.length || sources.length > 5 || sources.some((s) => !s || typeof s.text !== 'string' || s.text.length < 80 || s.text.length > 240000 || typeof s.url !== 'string' || !/^https?:\/\//i.test(s.url))) {
       throw new Error('Provide readable tab content before asking AI.');
     }
 

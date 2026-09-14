@@ -3,6 +3,12 @@
   "private": true,
   "version": "2.0.0",
   "type": "module",
+  "overrides": {
+    "adm-zip": "0.6.1",
+    "shell-quote": "1.10.0",
+    "tmp": "0.2.7",
+    "node-notifier": { "uuid": "11.1.1" }
+  },
   "scripts": {
     "dev": "vite",
     "build": "npm run clean && tsc -b && vite build",

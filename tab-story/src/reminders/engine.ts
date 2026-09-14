@@ -3,6 +3,7 @@ import type { SavedTab } from '../sidepanel/db';
 import { getStoredLocale, translate } from '../i18n/core';
 import { ReminderError } from './errors';
 import type { ReminderRequest } from './service';
+import { showBrowserReminder } from './browserBanner';
 
 export const ALARM_PREFIX = 'tab_story_reminder_';
 export const RECOVERY_ALARM = 'tab_story_recovery';
@@ -58,6 +59,18 @@ export async function ensureRecovery() {
 
 export async function execute(request: ReminderRequest) {
   await ensureRecovery();
+  if (request.operation === 'test') {
+    if (await chrome.notifications.getPermissionLevel() !== 'granted') throw new ReminderError('notificationPermission');
+    try {
+      await chrome.notifications.clear('tab_story_notification_test');
+      await chrome.notifications.create('tab_story_notification_test', {
+        type: 'basic', iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
+        title: 'Tab Story reminder', message: 'Your desktop notification test. Scheduled tabs use this alert.',
+        silent: false, priority: 2, requireInteraction: true,
+      });
+    } catch (cause) { throw new ReminderError('notificationFailed', { cause }); }
+    return;
+  }
   if (request.operation === 'reconcile') return recover();
   const id = request.tabId;
   if (!Number.isSafeInteger(id) || id! < 1) throw new ReminderError('invalidTab');
@@ -88,18 +101,17 @@ export async function execute(request: ReminderRequest) {
   } else if (!['schedule', 'reschedule'].includes(request.operation)) throw new ReminderError('invalidSchedule');
   if (!Number.isSafeInteger(at) || at! > 8640000000000000) throw new ReminderError('invalidSchedule');
   if (at! <= Date.now()) throw new ReminderError('pastSchedule');
-  if (await chrome.notifications.getPermissionLevel() !== 'granted') throw new ReminderError('notificationPermission');
   if (tab.scheduledAt !== at || tab.completedAt) {
     await db.tabs.update(id!, { scheduledAt: at, completedAt: undefined, completedScheduledAt: undefined, notifiedScheduledAt: undefined });
   }
   // DB remains authoritative on API failure; the recovery alarm retries it.
   await register({ ...tab, scheduledAt: at });
-  await clearNotifications(id!);
+  // Cleanup failure must not turn an already registered schedule into a failed save.
+  await clearNotifications(id!).catch(error => console.warn('[Tab Story] notification cleanup', error));
 }
 
 async function deliver(tabs: SavedTab[]) {
   if (!tabs.length) return;
-  if (await chrome.notifications.getPermissionLevel() !== 'granted') throw new ReminderError('notificationPermission');
   const locale = await getStoredLocale();
   const t = (key: string, params?: Record<string, string | number>) => translate(locale, key, params);
   // Re-read immediately before delivery to exclude edits performed by the panel.
@@ -109,17 +121,30 @@ async function deliver(tabs: SavedTab[]) {
     if (isScheduled(tab) && tab.scheduledAt === candidate.scheduledAt && tab.notifiedScheduledAt !== tab.scheduledAt) current.push(tab);
   }
   if (!current.length) return;
+  const bannerShown = await showBrowserReminder(current);
+  const nativeAllowed = await chrome.notifications.getPermissionLevel().catch(() => 'denied') === 'granted';
+  if (!nativeAllowed && !bannerShown) throw new ReminderError('notificationPermission');
   const single = current.length === 1 ? current[0] : undefined;
   const id = single ? notificationId(single.id!, single.scheduledAt!) : SUMMARY_ID;
-  if (!single) await db.reminderState.put({ id: 'missed', entries: current.map(tab => ({ tabId: tab.id!, scheduledAt: tab.scheduledAt! })) });
+  const grouped = [...current];
+  if (!single) {
+    const previous = await db.reminderState.get('missed');
+    for (const entry of previous?.entries || []) {
+      if (grouped.some(tab => tab.id === entry.tabId)) continue;
+      const tab = await db.tabs.get(entry.tabId);
+      if (isScheduled(tab) && tab.scheduledAt === entry.scheduledAt) grouped.push(tab);
+    }
+    await db.reminderState.put({ id: 'missed', entries: grouped.map(tab => ({ tabId: tab.id!, scheduledAt: tab.scheduledAt! })) });
+  }
   try {
-    await chrome.notifications.create(id, {
+    if (nativeAllowed) await chrome.notifications.create(id, {
       type: 'basic', iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
-      title: t('notifications.title'),
-      message: single ? t('notifications.review', { title: single.title }) : t('notifications.missed', { count: current.length }),
+      title: single ? '🔖 Time for a quick review' : `🔖 ${grouped.length} pages to revisit`,
+      silent: false, priority: 2, requireInteraction: true,
+      message: single ? `${single.title.slice(0, 120)}\n${validUrl(single.url) ? new URL(single.url).hostname : 'Saved page'} · ${new Date(single.scheduledAt!).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : grouped.slice(0, 3).map(tab => tab.title.slice(0, 60)).join(' · '),
       buttons: single ? [{ title: t('notifications.open') }, { title: t('notifications.snooze') }] : [{ title: t('notifications.calendar') }],
     });
-  } catch (cause) { throw new ReminderError('notificationFailed', { cause }); }
+  } catch (cause) { if (!bannerShown) throw new ReminderError('notificationFailed', { cause }); }
   await db.transaction('rw', db.tabs, async () => {
     for (const delivered of current) {
       const tab = await db.tabs.get(delivered.id!);
@@ -135,26 +160,36 @@ export async function recover() {
   const tabs = await db.tabs.toArray();
   const active = new Map(tabs.filter(isScheduled).map(tab => [tab.id!, tab]));
   const now = Date.now();
+  const overdueCount = [...active.values()].filter(tab => tab.scheduledAt! <= now).length;
+  // Keep overdue reminders visible even if system banners or sound are disabled.
+  try {
+    await chrome.action.setBadgeBackgroundColor({ color: '#b45309' });
+    await chrome.action.setBadgeText({ text: overdueCount ? String(Math.min(overdueCount, 99)) + (overdueCount > 99 ? '+' : '') : '' });
+  } catch (error) { console.warn('[Tab Story] reminder badge unavailable', error); }
   const failures: unknown[] = [];
   for (const alarm of await chrome.alarms.getAll()) {
     if (!alarm.name.startsWith(ALARM_PREFIX)) continue;
     const tab = active.get(Number(alarm.name.slice(ALARM_PREFIX.length)));
-    if (!tab || tab.scheduledAt! <= now || tab.scheduledAt !== alarm.scheduledTime) await chrome.alarms.clear(alarm.name);
+    if (!tab || tab.scheduledAt! <= now || tab.scheduledAt !== alarm.scheduledTime) {
+      try { await chrome.alarms.clear(alarm.name); } catch (error) { failures.push(error); }
+    }
   }
   for (const tab of active.values()) {
     if (tab.scheduledAt! > now) {
       try { await register(tab); } catch (error) { failures.push(error); }
     }
   }
-  for (const key of Object.keys(await chrome.notifications.getAll())) {
-    const entry = parseNotification(key);
-    if (entry && active.get(entry.tabId)?.scheduledAt !== entry.scheduledAt) await chrome.notifications.clear(key);
-  }
-  const summary = await db.reminderState.get('missed');
-  if (summary && !summary.entries.some(entry => active.get(entry.tabId)?.scheduledAt === entry.scheduledAt)) {
-    await chrome.notifications.clear(SUMMARY_ID);
-    await db.reminderState.delete('missed');
-  }
+  try {
+    for (const key of Object.keys(await chrome.notifications.getAll())) {
+      const entry = parseNotification(key);
+      if (entry && active.get(entry.tabId)?.scheduledAt !== entry.scheduledAt) await chrome.notifications.clear(key);
+    }
+    const summary = await db.reminderState.get('missed');
+    if (summary && !summary.entries.some(entry => active.get(entry.tabId)?.scheduledAt === entry.scheduledAt)) {
+      await chrome.notifications.clear(SUMMARY_ID);
+      await db.reminderState.delete('missed');
+    }
+  } catch (error) { console.warn('[Tab Story] stale notification cleanup', error); }
   await deliver([...active.values()].filter(tab => tab.scheduledAt! <= now && tab.notifiedScheduledAt !== tab.scheduledAt));
   if (failures.length) throw failures[0];
 }
@@ -169,6 +204,7 @@ export async function handleAlarm(alarm: chrome.alarms.Alarm) {
   await recover();
 }
 export async function handleNotification(id: string, button = 0) {
+  if (id === 'tab_story_notification_test') { await chrome.notifications.clear(id); return; }
   if (id === SUMMARY_ID) {
     const summary = await db.reminderState.get('missed');
     if (summary) {

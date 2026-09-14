@@ -59,6 +59,15 @@ export function App() {
   // Data for empty state check
   const folderCount = useLiveQuery(() => db.folders.count());
   const tabCount    = useLiveQuery(() => db.tabs.count());
+  const [reminderNow, setReminderNow] = useState(Date.now);
+  const dueTabs = useLiveQuery(() => db.tabs.where('scheduledAt').between(1, reminderNow, true, true)
+    .filter(tab => !tab.deletedAt && !tab.completedAt).toArray(), [reminderNow]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setReminderNow(Date.now()), 10000);
+    const refresh = () => setReminderNow(Date.now());
+    window.addEventListener('focus', refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', refresh); };
+  }, []);
 
   useEffect(() => {
     const showCalendar = () => {
@@ -309,6 +318,10 @@ const handleSaveAllTabs = async () => {
   )}
 </main>
       </div>
+      {!!dueTabs?.length && !error && activePanel !== 'Calendar' && <div className="app-alert" role="status" style={{ overflowWrap: 'anywhere' }}>
+        {dueTabs.length === 1 ? `Reminder: ${dueTabs[0].title}` : `${dueTabs.length} tabs are due`}
+        <button onClick={() => setActivePanel('Calendar')}>View reminders</button>
+      </div>}
       {error && <div className="app-alert" role="alert">{t("app.operationFailed")} <button onClick={() => setError(false)} aria-label={t("app.close")}>×</button></div>}
       {menuTab && <TabMenu tab={menuTab} onClose={() => setMenuTab(null)} onDiscussAI={(tab) => setAiModal({ title: tab.title, tabs: [tab] })} />}
       {aiModal && <AIDiscussModal title={aiModal.title} tabs={aiModal.tabs} onClose={() => setAiModal(null)} />}

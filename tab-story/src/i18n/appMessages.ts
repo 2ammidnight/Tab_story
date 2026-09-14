@@ -94,6 +94,8 @@ export const appMessages: Record<string, Record<string, string>> = {
     "about.version": "Version {version}",
     "about.description": "Save tabs, organize your resources, and schedule time to read them with Tab Story.",
     "about.github": "View on GitHub",
+    "about.reportIssue": "Report a bug or suggest a feature",
+    "about.reportIssueHint": "Open an issue on GitHub · new tab",
     "about.credit": "Made with ♥ by Manish Rathaur",
     "history.title": "Tab Story Timeline",
     "history.All": "All",

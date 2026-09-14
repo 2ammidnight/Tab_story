@@ -1,4 +1,5 @@
 import { getWeekInfo } from "../../i18n/core";
+import { getFaviconForDomain } from '../utils/url';
 import { requestReminderReconciliation } from "../../reminders/service";
 import { useI18n } from "../../i18n/useI18n";
 import { useState } from "react";
@@ -174,7 +175,7 @@ export function HistoryPanel({ onBack }: { onBack?: () => void }) {
 
                     <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
                       <img
-                        src={tab.favicon || `https://www.google.com/s2/favicons?domain=${tab.domain}&sz=32`}
+                        src={getFaviconForDomain(tab.domain)}
                         width={16}
                         height={16}
                         style={{ borderRadius: "3px", opacity: 0.5, flexShrink: 0, marginTop: "2px" }}
@@ -289,7 +290,7 @@ export function HistoryPanel({ onBack }: { onBack?: () => void }) {
 
                     <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
                       <img
-                        src={tab.favicon || `https://www.google.com/s2/favicons?domain=${tab.domain}&sz=32`}
+                        src={getFaviconForDomain(tab.domain)}
                         width={16}
                         height={16}
                         style={{ borderRadius: "3px", marginTop: "2px", flexShrink: 0 }}

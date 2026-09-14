@@ -7,12 +7,15 @@ export function getDomain(url: string): string {
 }
 
 export function getFavicon(faviconUrl: string | undefined, domain: string): string {
-  if (faviconUrl && faviconUrl.startsWith('http')) return faviconUrl;
-  return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+  void faviconUrl;
+  return getFaviconForDomain(domain);
 }
 
 export function getFaviconForDomain(domain: string): string {
-  return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+  const icon = new URL(chrome.runtime.getURL('/_favicon/'));
+  icon.searchParams.set('pageUrl', `https://${domain}`);
+  icon.searchParams.set('size', '32');
+  return icon.href;
 }
 
 export function normalizeUrl(value: string): string {
@@ -22,9 +25,6 @@ export function normalizeUrl(value: string): string {
 }
 
 export function isInternalUrl(url: string): boolean {
-  return (
-    url.startsWith('chrome://') ||
-    url.startsWith('chrome-extension://') ||
-    url.startsWith('about:')
-  );
+  try { return !['http:', 'https:'].includes(new URL(url).protocol); }
+  catch { return true; }
 }

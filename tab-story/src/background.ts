@@ -6,8 +6,15 @@ import { BACKUP_ALARM, ensureBackupAlarm, handleBackup } from './backup';
 
 chrome.runtime.onMessage.addListener((request, sender, respond) => {
   if (request?.type !== 'tab-story:backup' || sender.id !== chrome.runtime.id || sender.tab) return;
-  void handleBackup(String(request.operation), request.id).then(async result => {
-    if (request.operation === 'restore') await serialized(recover);
+  const operation = String(request.operation);
+  const action = operation === 'restore'
+    ? serialized(async () => {
+      const result = await handleBackup(operation, request.id);
+      await recover().catch(console.error);
+      return result;
+    })
+    : handleBackup(operation, request.id);
+  void action.then(result => {
     respond({ ok: true, ...result });
   }).catch(error => respond({ ok: false, error: error instanceof Error ? error.message : 'Backup failed.' }));
   return true;
@@ -20,7 +27,7 @@ void ensureBackupAlarm().catch(console.error);
 
 chrome.runtime.onMessage.addListener((request, sender, respond) => {
   if (request?.type !== 'tab-story:ai') return;
-  if (sender.id !== chrome.runtime.id) return;
+  if (sender.id !== chrome.runtime.id || !sender.url?.startsWith(chrome.runtime.getURL(''))) return;
   void handleAI(request).then(
     result => respond({ ok: true, ...result }),
     error => respond({
@@ -43,12 +50,19 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.runtime.onStartup.addListener(runRecovery);
+chrome.notifications.onPermissionLevelChanged.addListener(level => {
+  if (level === 'granted') runRecovery();
+});
 chrome.alarms.onAlarm.addListener(alarm => { void serialized(() => handleAlarm(alarm)).catch(console.error); });
 chrome.notifications.onClicked.addListener(id => { void serialized(() => handleNotification(id)).catch(console.error); });
 chrome.notifications.onButtonClicked.addListener((id, button) => { void serialized(() => handleNotification(id, button)).catch(console.error); });
 chrome.runtime.onMessage.addListener((request, sender, respond) => {
   if (request?.type !== REMINDER_MESSAGE || sender.id !== chrome.runtime.id) return;
-  void serialized(() => execute(request)).then(() => respond({ ok: true }), error => respond({ ok: false, code: reminderError(error, 'reminderDatabase').code }));
+  if (!sender.url?.startsWith(chrome.runtime.getURL(''))) return;
+  void serialized(async () => {
+    await execute(request);
+    if (request.operation !== 'test' && request.operation !== 'reconcile') runRecovery();
+  }).then(() => respond({ ok: true }), error => respond({ ok: false, code: reminderError(error, 'reminderDatabase').code }));
   return true;
 });
 void ensureRecovery().then(runRecovery).catch(console.error);

@@ -2,7 +2,7 @@ import { ReminderError, type ReminderErrorCode } from './errors.ts';
 
 export { ReminderError } from './errors.ts';
 export const REMINDER_MESSAGE = 'tab-story:reminder';
-export type ReminderOperation = 'schedule' | 'reschedule' | 'cancel' | 'complete' | 'snooze' | 'reconcile';
+export type ReminderOperation = 'schedule' | 'reschedule' | 'cancel' | 'complete' | 'snooze' | 'reconcile' | 'test';
 export interface ReminderRequest {
   type: typeof REMINDER_MESSAGE;
   operation: ReminderOperation;
@@ -35,3 +35,4 @@ export const snoozeTabReminder = (tabId: number, minutes = 10) => request('snooz
 export const requestReminderReconciliation = () => request('reconcile');
 export const restoreScheduledReminders = requestReminderReconciliation;
 export const reconcileMissedReminders = requestReminderReconciliation;
+export const testReminderNotification = () => request('test');

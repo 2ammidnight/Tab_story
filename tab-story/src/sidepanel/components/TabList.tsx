@@ -1,4 +1,5 @@
 import { useI18n } from "../../i18n/useI18n";
+import { getFaviconForDomain } from '../utils/url';
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import type { ReactNode } from "react";
@@ -110,8 +111,7 @@ transform: "translateX(-50%)",
 
 function TabFavicon({ tab, size = 20 }: { tab: SavedTab; size?: number }) {
   const [err, setErr] = useState(false);
-  const googleFavicon = `https://www.google.com/s2/favicons?domain=${tab.domain}&sz=32`;
-  const src = (!tab.favicon || err) ? googleFavicon : tab.favicon;
+  const src = err ? chrome.runtime.getURL('icons/icon-16.png') : getFaviconForDomain(tab.domain);
   return (
     <img
       src={src}
@@ -618,7 +618,7 @@ export function TabList({
                     }}
                   >
                     <img
-                      src={`https://www.google.com/s2/favicons?domain=${folder.domain}&sz=32`}
+                      src={getFaviconForDomain(folder.domain)}
                       width={20}
                       height={20}
                       style={{ borderRadius: "5px", flexShrink: 0 }}
